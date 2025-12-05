@@ -1,0 +1,9 @@
+@import "tailwindcss";
+
+body {
+  @apply bg-neutral-900 text-neutral-200;
+}
+
+.container {
+  @apply mx-auto px-4;
+}
