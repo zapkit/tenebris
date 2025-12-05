@@ -94,7 +94,7 @@ install_hysteria() {
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
             rm -rf /etc/hysteria
-            curl -fsSL https://get.hy2.sh/ | bash || exit 1
+            bash <(curl -fsSL https://get.hy2.sh/) || exit 1
             log_success "Hysteria 2 installed."
         else
             log_info "Skipping download. Using existing directory."
@@ -113,7 +113,7 @@ setup_hysteria() {
         -days 3650 -nodes -subj "/CN=$IP"
 
     log_info "Calculating SHA256 fingerprint..."
-    sha256=$(openssl x509 -in /etc/hysteria/ca.crt -noout -sha256 -fingerprint)
+    sha256=$(openssl x509 -in /etc/hysteria/ca.crt -noout -sha256 -fingerprint | cut -d'=' -f2)
 
     read -rp "Enter port for Hysteria [443]: " port
     port=${port:-443}
