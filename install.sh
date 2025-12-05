@@ -3,17 +3,20 @@
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 BLUE='\033[1;94m'
+YELLOW='\033[0;33m'
 NC='\033[0m'
 
 CHECK_MARK="[✓]"
 CROSS_MARK="[✗]"
 INFO_MARK="[i]"
+WARNING_MARK="[!]"
 
 IP=$(curl -fsSL https://ipinfo.io/ip)
 
 log_info()    { echo -e "${BLUE}${INFO_MARK} ${1}${NC}"; }
 log_success() { echo -e "${GREEN}${CHECK_MARK} ${1}${NC}"; }
 log_error()   { echo -e "${RED}${CROSS_MARK} ${1}${NC}" >&2; }
+log_warning() { echo -e "${YELLOW}${WARNING_MARK} ${1}${NC}"; }
 
 check_root() {
     [[ "$(id -u)" -ne 0 ]] && log_error "Run as root." && exit 1
@@ -33,6 +36,52 @@ check_os() {
        ! { [[ "$os" == "debian" ]] && [[ $(echo "$ver >= 12" | bc) -eq 1 ]]; }; then
         log_error "Requires Ubuntu 22+ or Debian 12+."
         exit 1
+    fi
+}
+
+install_packages() {
+    local REQUIRED_PACKAGES=("curl" "wget" "tar" "openssl")
+    local MISSING_PACKAGES=()
+
+    log_info "Checking required packages..."
+
+    for package in "${REQUIRED_PACKAGES[@]}"; do
+        if ! command -v "$package" &> /dev/null; then
+            MISSING_PACKAGES+=("$package")
+        else
+            log_success "Package $package is already installed"
+        fi
+    done
+
+    if [ ${#MISSING_PACKAGES[@]} -ne 0 ]; then
+        log_info "Installing missing packages: ${MISSING_PACKAGES[*]}"
+        apt update -qq || { log_error "Failed to update apt repositories"; exit 1; }
+        apt upgrade -y -qq || log_warning "Failed to upgrade packages, continuing..."
+
+        for package in "${MISSING_PACKAGES[@]}"; do
+            log_info "Installing $package..."
+            if apt install -y -qq "$package"; then
+                log_success "Installed $package"
+            else
+                log_error "Failed to install $package"
+                exit 1
+            fi
+        done
+    else
+        log_success "All required packages are already installed."
+    fi
+
+    if ! command -v go &> /dev/null; then
+        GO_VERSION="1.25.4"
+        log_info "Installing Go $GO_VERSION..."
+        wget -q "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -O /tmp/go.tar.gz || { log_error "Failed to download Go"; exit 1; }
+        rm -rf /usr/local/go
+        tar -C /usr/local -xzf /tmp/go.tar.gz || { log_error "Failed to extract Go"; exit 1; }
+        rm /tmp/go.tar.gz
+        export PATH=$PATH:/usr/local/go/bin
+        log_success "Go $GO_VERSION installed successfully"
+    else
+        log_success "Go is already installed: $(go version)"
     fi
 }
 
@@ -68,12 +117,10 @@ setup_hysteria() {
 
     read -rp "Enter port for Hysteria [443]: " port
     port=${port:-443}
-
     if ! [[ $port =~ ^[0-9]+$ ]] || (( port < 1 || port > 65535 )); then
         log_error "Invalid port number. Must be 1-65535."
         exit 1
     fi
-
     if ss -tuln | grep -q ":$port\b"; then
         log_error "Port $port is already in use."
         exit 1
@@ -100,10 +147,27 @@ masquerade:
     url: https://news.ycombinator.com/
     rewriteHost: true
 EOF
-
     log_success "Config created: /etc/hysteria/config.yaml"
-    hysteria server -c /etc/hysteria/config.yaml &
-    log_success "Hysteria is running!"
+
+    log_info "Creating systemd service..."
+    cat >/etc/systemd/system/hysteria-server.service <<EOF
+[Unit]
+Description=Hysteria Server
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/hysteria server -c /etc/hysteria/config.yaml
+Restart=always
+User=root
+LimitNOFILE=1000000
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable --now hysteria-server
+    log_success "Hysteria service installed and started!"
 
     generate_name() {
         tr -dc 'A-Za-z1-9' </dev/urandom | head -c 8
@@ -127,6 +191,7 @@ EOF
 main() {
     check_root
     check_os
+    install_packages
     install_hysteria
     setup_hysteria
 }
