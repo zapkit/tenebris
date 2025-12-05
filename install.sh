@@ -3,15 +3,18 @@
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 BLUE='\033[1;94m'
+YELLOW='\033[0;33m'
 NC='\033[0m'
 
 CHECK_MARK="[✓]"
 CROSS_MARK="[✗]"
 INFO_MARK="[i]"
+WARNING_MARK="[!]"
 
 log_info()    { echo -e "${BLUE}${INFO_MARK} ${1}${NC}"; }
 log_success() { echo -e "${GREEN}${CHECK_MARK} ${1}${NC}"; }
 log_error()   { echo -e "${RED}${CROSS_MARK} ${1}${NC}" >&2; }
+log_warning() { echo -e "${YELLOW}${WARNING_MARK} ${1}${NC}"; }
 
 check_root() {
     [[ "$(id -u)" -ne 0 ]] && log_error "Run as root." && exit 1
@@ -138,20 +141,11 @@ EOF
 
     URI="hy2://$password@$ip:$port?sni=$ip&insecure=1#Hy2"
 
-    generate_name() {
-        tr -dc 'A-Za-z1-9' </dev/urandom | head -c 8
-    }
-
     echo ""
     echo "======================================="
     echo ""
     echo "Connection URI for Hiddify:"
-    echo ""
-    for i in 1 2 3; do
-        NAME=$(generate_name)
-        URI="hy2://$password@$ip:$port?sni=$ip&insecure=1#$NAME"
-        echo "  $URI"
-    done
+    echo "$URI"
     echo ""
     echo "======================================="
     echo ""
