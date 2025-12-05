@@ -9,8 +9,6 @@ CHECK_MARK="[✓]"
 CROSS_MARK="[✗]"
 INFO_MARK="[i]"
 
-IP=$(curl -fsSL https://ipinfo.io/ip)
-
 log_info()    { echo -e "${BLUE}${INFO_MARK} ${1}${NC}"; }
 log_success() { echo -e "${GREEN}${CHECK_MARK} ${1}${NC}"; }
 log_error()   { echo -e "${RED}${CROSS_MARK} ${1}${NC}" >&2; }
@@ -36,20 +34,69 @@ check_os() {
     fi
 }
 
+install_packages() {
+    local REQUIRED_PACKAGES=("curl" "wget" "tar" "openssl")
+    local MISSING_PACKAGES=()
+
+    log_info "Checking required packages..."
+
+    for package in "${REQUIRED_PACKAGES[@]}"; do
+        if ! command -v "$package" &> /dev/null; then
+            MISSING_PACKAGES+=("$package")
+        else
+            log_success "Package $package is already installed"
+        fi
+    done
+
+    if [ ${#MISSING_PACKAGES[@]} -ne 0 ]; then
+        log_info "Installing missing packages: ${MISSING_PACKAGES[*]}"
+        apt update -qq || { log_error "Failed to update apt repositories"; exit 1; }
+        apt upgrade -y -qq || log_warning "Failed to upgrade packages, continuing..."
+
+        for package in "${MISSING_PACKAGES[@]}"; do
+            log_info "Installing $package..."
+            if apt install -y -qq "$package"; then
+                log_success "Installed $package"
+            else
+                log_error "Failed to install $package"
+                exit 1
+            fi
+        done
+    else
+        log_success "All required packages are already installed."
+    fi
+
+    if ! command -v go &> /dev/null; then
+        GO_VERSION="1.25.4"
+        log_info "Installing Go $GO_VERSION..."
+        wget -q "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -O /tmp/go.tar.gz || { log_error "Failed to download Go"; exit 1; }
+        rm -rf /usr/local/go
+        tar -C /usr/local -xzf /tmp/go.tar.gz || { log_error "Failed to extract Go"; exit 1; }
+        rm /tmp/go.tar.gz
+        export PATH=$PATH:/usr/local/go/bin
+        log_success "Go $GO_VERSION installed successfully"
+    else
+        log_success "Go is already installed: $(go version)"
+    fi
+}
+
 install_hysteria() {
     log_info "Installing Hysteria 2..."
+    rm -rf /etc/hysteria
     curl -fsSL https://get.hy2.sh/ | bash || exit 1
     log_success "Hysteria 2 installed."
 }
 
 setup_hysteria() {
+    ip=$(curl -fsSL https://ipinfo.io/ip)
+
     mkdir -p /etc/hysteria
 
     log_info "Generating TLS certificate..."
     openssl req -x509 -newkey rsa:2048 \
         -keyout /etc/hysteria/ca.key \
         -out /etc/hysteria/ca.crt \
-        -days 3650 -nodes -subj "/CN=$IP"
+        -days 3650 -nodes -subj "/CN=$ip"
 
     log_info "Calculating SHA256 fingerprint..."
     sha256=$(openssl x509 -in /etc/hysteria/ca.crt -noout -sha256 -fingerprint | cut -d'=' -f2 | tr -d ':')
@@ -88,24 +135,36 @@ masquerade:
 EOF
 
     log_success "Config created: /etc/hysteria/config.yaml"
+
+    URI="hy2://$password@$ip:$port?sni=$ip&insecure=1#Hy2"
+
+    generate_name() {
+        tr -dc 'A-Za-z1-9' </dev/urandom | head -c 8
+    }
+
+    echo ""
+    echo "======================================="
+    echo ""
+    echo "Connection URI for Hiddify:"
+    echo ""
+    for i in 1 2 3; do
+        NAME=$(generate_name)
+        URI="hy2://$password@$ip:$port?sni=$ip&insecure=1#$NAME"
+        echo "  $URI"
+    done
+    echo ""
+    echo "======================================="
+    echo ""
+
     log_info "Starting server..."
     hysteria server -c /etc/hysteria/config.yaml &
-
-    URI="hy2://$password@$IP:$port?sni=$IP&insecure=1#Hy2"
-
     log_success "Hysteria is running!"
-    echo -e "\n==============================="
-    echo "Port: $port"
-    echo "Password: $password"
-    echo "SHA256: $sha256"
-    echo "Connection URI for Hiddify:"
-    echo "$URI"
-    echo "==============================="
 }
 
 main() {
     check_root
     check_os
+    install_packages
     install_hysteria
     setup_hysteria
 }
