@@ -38,8 +38,20 @@ check_os() {
 
 install_hysteria() {
     log_info "Installing Hysteria 2..."
-    curl -fsSL https://get.hy2.sh/ | bash || exit 1
-    log_success "Hysteria 2 installed."
+
+    if [ -d "/etc/hysteria" ]; then
+        log_warning "Directory /etc/hysteria already exists."
+        read -p "Do you want to remove it and install again? (y/n): " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            rm -rf /etc/hysteria
+            curl -fsSL https://get.hy2.sh/ | bash || exit 1
+            log_success "Hysteria 2 installed."
+        else
+            log_info "Skipping download. Using existing directory."
+            return 0
+        fi
+    fi
 }
 
 setup_hysteria() {
@@ -52,7 +64,7 @@ setup_hysteria() {
         -days 3650 -nodes -subj "/CN=$IP"
 
     log_info "Calculating SHA256 fingerprint..."
-    sha256=$(openssl x509 -in /etc/hysteria/ca.crt -noout -sha256 -fingerprint | cut -d'=' -f2 | tr -d ':')
+    sha256=$(openssl x509 -in /etc/hysteria/ca.crt -noout -sha256 -fingerprint)
 
     read -rp "Enter port for Hysteria [443]: " port
     port=${port:-443}
@@ -90,19 +102,26 @@ masquerade:
 EOF
 
     log_success "Config created: /etc/hysteria/config.yaml"
-    log_info "Starting server..."
     hysteria server -c /etc/hysteria/config.yaml &
-
-    URI="hy2://$password@$IP:$port?sni=$IP&insecure=1#Hy2"
-
     log_success "Hysteria is running!"
-    echo -e "\n==============================="
-    echo "Port: $port"
-    echo "Password: $password"
-    echo "SHA256: $sha256"
+
+    generate_name() {
+        tr -dc 'A-Za-z1-9' </dev/urandom | head -c 8
+    }
+
+    echo ""
+    echo "======================================="
+    echo ""
     echo "Connection URI for Hiddify:"
-    echo "$URI"
-    echo "==============================="
+    echo ""
+    for i in 1 2 3; do
+        NAME=$(generate_name)
+        URI="hy2://$password@$IP:$port?sni=$IP&insecure=1#$NAME"
+        echo "  $URI"
+    done
+    echo ""
+    echo "======================================="
+    echo ""
 }
 
 main() {
