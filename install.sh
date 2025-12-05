@@ -87,20 +87,9 @@ install_packages() {
 
 install_hysteria() {
     log_info "Installing Hysteria 2..."
-
-    if [ -d "/etc/hysteria" ]; then
-        log_warning "Directory /etc/hysteria already exists."
-        read -p "Do you want to remove it and install again? (y/n): " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            rm -rf /etc/hysteria
-            bash <(curl -fsSL https://get.hy2.sh/) || exit 1
-            log_success "Hysteria 2 installed."
-        else
-            log_info "Skipping download. Using existing directory."
-            return 0
-        fi
-    fi
+    rm -rf /etc/hysteria
+    curl -fsSL https://get.hy2.sh/ | bash || exit 1
+    log_success "Hysteria 2 installed."
 }
 
 setup_hysteria() {
